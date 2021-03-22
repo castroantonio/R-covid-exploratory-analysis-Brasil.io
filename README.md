@@ -4,5 +4,3 @@
 <p>Fonte dos dados: Brasil.io</p>
 <p>URL: https://brasil.io/dataset/covid19/files/</p>
 <p>Data de download: 02/03/2021</p>
-
-
