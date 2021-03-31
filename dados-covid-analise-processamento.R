@@ -1,12 +1,13 @@
 
 setwd("/home/castro/Downloads/brasil IO - covid")
 
-## Carga dos dados
+# Carga dos dados
 arquivo <- "caso.csv"
 
+dados <- read.csv(arquivo, header = TRUE, stringsAsFactors = FALSE)
 
-dados <- read.csv(arquivo, header = TRUE,stringsAsFactors = FALSE)
 
+#### Analise Exploratoria
 
 # Vejamos algumas linhas das informações que ele traz.
 head(dados)
@@ -74,6 +75,12 @@ ggplot(temp, aes(x=date, y=deaths, group=city)) +
 
 # É importante observar que o gráfico só cresce! O dado de mortes é cumulativo!!! Eu não havia percebido isso até agora!
 
+
+
+#### Pre-processamento
+
+## Numero de mortes por dia
+
 # Vamos criar um novo atributo com o numero de mortes por dia.
 dados$deaths_day <- 0
 
@@ -122,6 +129,9 @@ ggplot(dados, aes(x=date, y=deaths_day, group=city)) +
   labs(x = "data", y = "mortes/dia") +
   theme_minimal()
 
+
+## Número de mortes/dia 100k habitantes
+
 # Seria melhor se todos fossem medidos com uma mesma escala.
 # Os dados já trazem uma coluna que usa isso confirmed_per_100k_inhabitants, vamos fazer algo parecido para o número de mortes por dia:</p>
 dados$deaths_day_per_100k_inhabitants <- 100000 * dados$deaths_day / dados$estimated_population
@@ -135,6 +145,7 @@ ggplot(dados, aes(x=date, y=deaths_day_per_100k_inhabitants, group=city)) +
   theme_minimal()
 
 
+## Padronização por z-score - número de mortes/dia 100k habitantes
 
 # Padronizacao por z-score.
 dados$deaths_day_100k_zscore <- 0
@@ -154,7 +165,7 @@ ggplot(dados, aes(x=date, y=deaths_day_100k_zscore, group=city)) +
 
 
 
-# Agora transformar em dados temporais:
+## Formato de entrada
 
 # atributos e registros
 municipios <- sort(unique(dados$city))
@@ -183,12 +194,28 @@ for (municipio in municipios) {
 }
 
 
+## Dividindo em intervalos e discretizando
+minimo <- min(D)
+maximo <- max(D)
+numero_intervalos <- 10
+quebras <- seq(from = minimo, to = maximo, length = numero_intervalos + 1)
 
-# Fazendo a media de mortes semanal.
+t <- cut(D, breaks = quebras, labels = letters[1:numero_intervalos], include.lowest=TRUE)
+D <- matrix(t, nrow = nrow(D), ncol = ncol(D))
 
+D <- as.data.frame(D, stringsAsFactors=FALSE)
+rownames(D) <- datas
+colnames(D) <- municipios
+
+
+
+
+
+
+## Fazendo a media de mortes semanal.
 
 # seleciona apenas colunas de interesse
-temp <- dados[ , c(1,2,11)]
+temp <- dados[ , c(1,2,11)] # date, city, deaths_day
 
 datas <- sort(unique(temp$date))
 
@@ -280,7 +307,7 @@ ggplot(semanal, aes(x=week, y=mean_deaths_week_100k_zscore, group=city)) +
   theme_minimal()
 
 
-# Agora transformar em dados temporais:
+## Agora transformar no formato desejado:
 
 
 # atributos e registros
@@ -303,5 +330,21 @@ for (municipio in municipios) {
     D[semana, municipio] <- semanal[semanal$city==municipio & semanal$week == semana, "mean_deaths_week_100k_zscore"]
   }
 }
+
+
+
+## Dividindo em intervalos e discretizando
+
+minimo <- min(D)
+maximo <- max(D)
+numero_intervalos <- 10
+quebras <- seq(from = minimo, to = maximo, length = numero_intervalos + 1)
+
+t <- cut(D, breaks = quebras, labels = letters[1:numero_intervalos], include.lowest=TRUE)
+D <- matrix(t, nrow = nrow(D), ncol = ncol(D))
+
+D <- as.data.frame(D, stringsAsFactors=FALSE)
+rownames(D) <- semanas
+colnames(D) <- municipios
 
 
