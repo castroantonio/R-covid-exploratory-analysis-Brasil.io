@@ -1,0 +1,186 @@
+---
+title: "Dados Covid-19 - pré-processamento"
+output: html_notebook
+---
+
+Dados obtidos do site <a href="https://brasil.io">Brasil.io</a>. O qual disponibiliza não apenas os dados como também documentação, diversas visualizações dos dados, uma API de acesso além do código fonte de tudo.
+
+URL direta dos dados: <a href="https://brasil.io/dataset/covid19/files/">https://brasil.io/dataset/covid19/files/</a>.
+
+Data de download: 02/03/2021 
+
+---
+
+<h2>Pré-processamento</h2>
+Criar, alterar, ou adicionar dados que nos permitam mehorar o processamento, melhorando a consistência, completude, confiabilidade e o conjunto de dados mais fácil de ser interpretado.
+
+---
+
+Carga dos dados.
+
+```{r}
+dados <- read.csv("caso.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+Vamos manter apenas os dados dos municípios do estado do Rio de Janeiro e vamos remover colunas que não serão utilizadas: <i>state</i> (é sempre <i>RJ</i>), <i>place_type</i> (é sempre <i>city</i>) e <i>estimated_population_2019</i> (desatualizada)
+
+Além disso, retirar os <i>Importados/Indefinidos</i>:
+
+```{r}
+dados <- dados[dados$state == "RJ" & dados$place_type == "city", ]
+dados <- dados[ , - c(2, 4, 9)] # state, place_type, estimated_population_2019
+dados <- dados[dados$city != "Importados/Indefinidos", ]
+```
+
+<h3>Número de mortes por dia</h3>
+Vamos criar um novo atributo com o número de mortes por dia:
+
+```{r}
+dados$deaths_day <- 0
+
+municipios <- sort(unique(dados$city))
+
+for (municipio in municipios) {
+  indices <- sort(dados[dados$city == municipio, "order_for_place"])
+  acumulado <- 0
+  for (indice in indices) {
+    mortes_no_dia <- dados[dados$city == municipio & dados$order_for_place == indice, "deaths"] - acumulado
+    dados[dados$city == municipio & dados$order_for_place == indice, "deaths_day"] <- mortes_no_dia
+    acumulado <- dados[dados$city == municipio & dados$order_for_place == indice, "deaths"]
+  }
+}
+```
+
+Em R deve ser possível fazer sem usar dois laços (um <i>for</i> dentro do outro). Ainda vou tentar descobrir como...
+
+Ficou tudo certo? Ficou algum número negativo?
+
+```{r}
+any(dados$deaths_day < 0)
+```
+
+Eita! Será que eu errei no código? Vejamos os dados:
+
+```{r}
+dados[dados$deaths_day < 0,]
+```
+
+Vamos olhar um exemplo e ver os dados originais, o próprio registro e uns antes:
+
+```{r}
+dados[dados$city == "Araruama" & dados$order_for_place %in% c(64, 65, 66, 67),]
+```
+
+Ficou difícil de ver, vamos melhorar isso, vendo só algumas colunas:
+
+```{r}
+dados[dados$city == "Araruama" & dados$order_for_place %in% c(64, 65, 66, 67), c(1,2,4,11)]
+```
+
+Do dia <i>2020-06-06</i> para o dia <i>2020-06-07</i> alguém ressucitou!!! Aleluia!
+
+Ou os dados não são confiáveis... Talvez não por culpa do pessoal do Brasil.io, mas sim das secretarias de saúde.
+
+---
+
+Qual o pior caso?
+
+```{r}
+dados[dados$deaths_day == min(dados$deaths_day),]
+```
+
+Cento e onze ressucitaram no mesmo dia! Vamos ver mais detalhes:
+
+```{r}
+dados[dados$city == "Niterói" & dados$order_for_place %in% c(281, 282, 283), c(1,2,4,11)]
+```
+
+Sem muito o que fazer, vamos manter assim mesmo. Quem quiser pode zerar todos os negativos com o seguinte comando:
+<i>dados[dados$deaths_day < 0, "deaths_day"] <- 0</i>
+
+---
+
+Como ficaram os dados?
+
+```{r}
+max(dados$deaths_day)
+
+min(dados$deaths_day)
+```
+
+Nada como um gráfico para ver como ficou o novo dado:
+
+Primeiro carregando a biblioteca necessária:
+
+```{r}
+library("ggplot2")
+```
+
+Agora sim, o gráfico:
+
+```{r}
+ggplot(dados, aes(x=date, y=deaths_day, group=city)) +
+  geom_point(aes(color=city), show.legend = FALSE) +
+  geom_line(aes(color=city), show.legend = FALSE) +
+  labs(x = "data", y = "mortes") +
+  theme_minimal()
+```
+
+Um único município passa de 200 mortes/dia (duas vezes) e com frequência passa de 100. A maioria não chega nem perto de 50 mortes/dia (ainda bem).
+
+---
+
+Que município é esse?
+
+```{r}
+dados[dados$deaths_day > 200,]
+```
+
+Rio de Janeiro.
+
+---
+
+<h4>Número de mortes/dia 100k habitantes</h4>
+Seria melhor se todos fossem medidos com uma mesma escala. Para comparar o número de mortes por dia de duas cidades (uma grande e uma pequena, por exemplo), é melhor dividir pelo tamanho da população. Os dados já trazem uma coluna que usa isso <i>confirmed_per_100k_inhabitants</i>, vamos algo parecido para o número de mortes por dia:
+
+```{r}
+dados$deaths_day_per_100k_inhabitants <- 100000 * dados$deaths_day / dados$estimated_population
+```
+
+Vejamos como ficou:
+
+```{r}
+ggplot(dados, aes(x=date, y=deaths_day_per_100k_inhabitants, group=city)) +
+  geom_point(aes(color=city), show.legend = FALSE) +
+  geom_line(aes(color=city), show.legend = FALSE) +
+  labs(x = "data", y = "mortes/dia 100k habitantes") +
+  theme_minimal()
+```
+Parece melhor.
+
+---
+
+<h4>Padronização por z-score - número de mortes/dia 100k habitantes</h4>
+Padronização por z-score, por município:
+$z = \frac{x - \mu}{\sigma}$
+Onde: $\mu$ é a média, e $\sigma$ é o desvio padrão.
+
+```{r}
+dados$deaths_day_100k_zscore <- 0
+for (municipio in municipios) {
+  media <- mean(dados[dados$city == municipio, "deaths_day_per_100k_inhabitants"], na.rm = TRUE)
+  desvio_padrao <- sd(dados[dados$city == municipio, "deaths_day_per_100k_inhabitants"], na.rm = TRUE)
+  dados[dados$city == municipio, "deaths_day_100k_zscore"] <- ((dados[dados$city == municipio, "deaths_day_per_100k_inhabitants"] - media) / desvio_padrao)
+}
+```
+
+Como ficaram os dados?
+
+```{r}
+ggplot(dados, aes(x=date, y=deaths_day_100k_zscore, group=city)) +
+  geom_point(aes(color=city), show.legend = FALSE) +
+  geom_line(aes(color=city), show.legend = FALSE) +
+  labs(x = "data", y = "mortes/dia 100k habitantes (z-score)") +
+  theme_minimal()
+```
+

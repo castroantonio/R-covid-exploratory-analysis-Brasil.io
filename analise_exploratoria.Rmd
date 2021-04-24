@@ -1,0 +1,206 @@
+---
+title: "Dados Covid-19 - análise exploratória"
+output: html_notebook
+---
+
+Dados obtidos do site <a href="https://brasil.io">Brasil.io</a>. O qual disponibiliza não apenas os dados como também documentação, diversas visualizações dos dados, uma API de acesso além do código fonte de tudo.
+
+URL direta dos dados: <a href="https://brasil.io/dataset/covid19/files/">https://brasil.io/dataset/covid19/files/</a>.
+
+Data de download: 02/03/2021
+
+---
+
+<h2>Análise Exploratória</h2>
+Tentar obter o máximo de informações do conjunto de dados.
+
+---
+
+Carga dos dados.
+
+```{r}
+dados <- read.csv("caso.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+Os dados já vem com um cabeçalho, o que ajuda muito!
+No github referente ao site <a href="https://brasil.io">Brasil.io</a>, existe documentação relacionada aos dados, a qual reproduzo logo abaixo. A documentação original pode ser acessada clicando <a href="https://github.com/turicas/covid19-br/blob/master/api.md#casos">aqui</a>.
+Colunas:
+<ul>
+<li>date: data de coleta dos dados no formato YYYY-MM-DD.</li>
+<li>state: sigla da unidade federativa, exemplo: SP.</li>
+<li>city: nome do município (pode estar em branco quando o registro é referente ao estado, pode ser preenchido com Importados/Indefinidos também).</li>
+<li>place_type: tipo de local que esse registro descreve, pode ser city ou state.</li>
+<li>order_for_place: número que identifica a ordem do registro para este local. O registro referente ao primeiro boletim em que esse local aparecer será contabilizado como 1 e os demais boletins incrementarão esse valor.</li>
+<li>is_last: campo pré-computado que diz se esse registro é o mais novo para esse local, pode ser True ou False (caso filtre por esse campo, use is_last=True ou is_last=False, não use o valor em minúsculas).</li>
+<li>city_ibge_code: código IBGE do local.</li>
+<li>confirmed: número de casos confirmados.</li>
+<li>deaths: número de mortes.</li>
+<li>estimated_population: população estimada para esse município/estado em 2020, segundo o IBGE. (acesse o script que faz o download e conversão dos dados de população).</li>
+<li>estimated_population_2019: população estimada para esse município/estado em 2019, segundo o IBGE. ATENÇÃO: essa coluna possui valores desatualizados, prefira usar a coluna estimated_population.</li>
+<li>confirmed_per_100k_inhabitants: número de casos confirmados por 100.000 habitantes (baseado em estimated_population).</li>
+<li>death_rate: taxa de mortalidade (mortes / confirmados).</li>
+</ul>
+Ainda assim, vamos fazer uma análise exploratória:
+
+---
+
+Qual o tamanho do conjunto de dados?
+
+```{r}
+dim(dados)
+```
+
+Vejamos algumas linhas das informações que ele traz.
+
+```{r}
+head(dados)
+```
+
+```{r}
+tail(dados)
+```
+
+Informações básicas sobre os atributos do conjunto de dados:
+
+```{r}
+str(dados)
+```
+
+Que atributo possui?
+
+```{r}
+names(dados)
+```
+
+Sumarizando os dados temos informações mais detalhadas sobre cada um dos atributos:
+<ul>
+    <li><i>city</i> possui 9453 registros com este atributo vazio (são dados dos estados) e 5774 registros com o valor <i>Importados/Indefinidos</i>.</li>
+    <li><i>confirmed</i> e <i>deaths</i> possuem valores baixos (amém), com mediana baixa, média maior (possívelmente puxada para cima por conta do valor máximo).</li>
+    <li>As colunas de população estimada <i>estimated_population</i> e a coluna <i>city_ibge_code</i> possuem o mesmo número de valores <i>NA</i> (not available). Isso acaba refletindo na coluna <i>confirmed_per_100k_inhabitants</i>. Os <i>NA</i> devem ser para cidades novas, que não apareciam no censo do IBGE e também para os <i>Importados/Indefinidos</i> da coluna <i>city</i>.</li>
+    <li>Os dados fazem sentido. Os campos <i>confirmed</i>, <i>deaths</i>, <i>estimated_population_2019</i>, <i>estimated_population</i>, <i>confirmed_per_100k_inhabitants</i> e <i>death_rate</i> tem valores maiores ou iguais a zero (afora os <i>NA</i>)</li>
+</ul>  
+
+```{r}
+summary(dados)
+```
+
+Vamos manter apenas os dados dos municípios do estado do Rio de Janeiro e vamos remover colunas que não serão utilizadas: <i>state</i> (é sempre <i>RJ</i>), <i>place_type</i> (é sempre <i>city</i>) e <i>estimated_population_2019</i> (desatualizada)
+
+```{r}
+dados <- dados[dados$state == "RJ" & dados$place_type == "city", ]
+dados <- dados[ , - c(2, 4, 9)] # state, place_type, estimated_population_2019
+```
+
+Existem NAs?
+
+```{r}
+any(is.na(dados))
+```
+
+Em que coluna?
+```{r}
+colSums(is.na(dados))
+```
+
+Vamos ver:
+
+```{r}
+dados[is.na(dados$estimated_population), ]
+```
+
+Ah, esqueci de retirar os <i>Importados/Indefinidos</i>:
+
+```{r}
+dados <- dados[dados$city != "Importados/Indefinidos", ]
+```
+
+Ainda existem NAs?
+
+```{r}
+any(is.na(dados))
+```
+
+Que chato! Em que coluna?
+
+```{r}
+colSums(is.na(dados))
+```
+
+Vamos dar uma olhada:
+
+```{r}
+dados[is.na(dados$confirmed_per_100k_inhabitants), ]
+```
+
+Não parece que isso vai atrapalhar em nada. Ao que parece o atributo <i>confirmed_per_100k_inhabitants</i> ficou com valor <i>NA</i> sempre que <i>confirmed</i> tem o valor 0 (zero). Vamos confirmar:
+
+```{r}
+nrow(dados[is.na(dados$confirmed_per_100k_inhabitants), ]) == nrow(dados[dados$confirmed == 0, ])
+```
+
+Como estão os dados de cada município?
+
+```{r}
+table(dados$city)
+```
+
+Qual o máximo de mortes e os dados de onde ocorreu?
+
+```{r}
+dados[dados$deaths == max(dados$deaths), ]
+```
+
+Vamos plotar alguns gráficos.
+Primeiro carregando a biblioteca necessária:
+
+```{r}
+library("ggplot2")
+```
+
+Agora sim o gráfico:
+
+```{r}
+ggplot(dados, aes(x=date, y=deaths, group=city)) +
+  geom_point(aes(color=city)) +
+  geom_line(aes(color=city)) +
+  labs(x = "data", y = "mortes") +
+  theme_minimal()
+```
+
+Ops! Muita coisa para um só gráfico. Vamos remover a legenda.
+
+```{r}
+ggplot(dados, aes(x=date, y=deaths, group=city)) +
+  geom_point(aes(color=city), show.legend = FALSE) +
+  geom_line(aes(color=city), show.legend = FALSE) +
+  labs(x = "data", y = "mortes") +
+  theme_minimal()
+```
+
+Ops! Muitos dados para um só gráfico, além disso um município é muito maior que os outros. Vamos diminuir o conjunto, selecionando apenas alguns municípios para poder plotar.
+
+```{r}
+temp <- dados[dados$city %in% c("Japeri", "Resende", "Itatiaia", "Rio de Janeiro", "Paraty"), ]
+
+ggplot(temp, aes(x=date, y=deaths, group=city)) +
+  geom_point(aes(color=city)) +
+  geom_line(aes(color=city)) +
+  labs(x = "data", y = "mortes") +
+  theme_minimal()
+```
+
+O Rio de Janeiro cresce muito mais que os outros municípios, por ser uma região metropolitana. Assim não dá pra ver os outros. Vamos tirar o Rio de Janeiro por enquanto.
+
+```{r}
+temp <- dados[dados$city %in% c("Japeri", "Resende", "Itatiaia", "Paraty"), ]
+
+ggplot(temp, aes(x=date, y=deaths, group=city)) +
+  geom_point(aes(color=city)) +
+  geom_line(aes(color=city)) +
+  labs(x = "data", y = "mortes") +
+  theme_minimal()
+```
+
+É importante observar que o gráfico só cresce! O dado de mortes é cumulativo!!! Eu não havia percebido isso até agora!
+
+A data na parte de baixo do gráfico também não ficou boa...
